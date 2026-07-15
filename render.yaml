@@ -1,0 +1,42 @@
+services:
+  # VBCUA FastAPI Backend (Docker Deployment)
+  - type: web
+    name: vbcua-backend
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    dockerCommand: uvicorn backend.main:app --host 0.0.0.0 --port 10000
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///app/database/analyzer.db
+      - key: WHISPER_MODEL
+        value: tiny
+    disk:
+      name: vbcua-db-disk
+      mountPath: /app/database
+      sizeGB: 1
+
+  # VBCUA Streamlit Frontend (Docker Deployment)
+  - type: web
+    name: vbcua-frontend
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    dockerCommand: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8501
+      - key: GEMINI_API_KEY
+        sync: false
+    disk:
+      name: vbcua-front-disk
+      mountPath: /app/database
+      sizeGB: 1

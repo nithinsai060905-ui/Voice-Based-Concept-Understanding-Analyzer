@@ -71,12 +71,11 @@ def extract_audio_features(audio_path, silence_threshold_db=-35):
     # So if silence_threshold_db is -35, top_db is 35
     top_db = abs(silence_threshold_db)
     non_silent_frames = librosa.effects.split(y, top_db=top_db, frame_length=frame_length, hop_length=hop_length)
-    non_silent_intervals = librosa.frames_to_time(non_silent_frames, sr=sr, hop_length=hop_length).tolist()
     
-    # Convert non-silent intervals to start-end seconds
+    # Convert non-silent intervals to start-end seconds (librosa.effects.split returns sample indices)
     non_silent_sec = []
-    for start, end in non_silent_intervals:
-        non_silent_sec.append([round(start, 3), round(end, 3)])
+    for start, end in non_silent_frames:
+        non_silent_sec.append([round(float(start) / sr, 3), round(float(end) / sr, 3)])
         
     # 4. Compute silent intervals as gaps between non-silent intervals
     silent_intervals = []

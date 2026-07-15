@@ -4,9 +4,9 @@ import datetime
 import numpy as np
 import tempfile
 from database import db_helper
-from analyzer import speech_to_text, semantic_similarity, audio_features, fluency_analysis, confidence_analysis, keyword_matching
+from analyzer import speech_to_text, semantic_similarity, audio_features, fluency_analysis, confidence_analysis, keyword_matching, gemini_feedback
 from reports import pdf_generator
-from utils import visualization
+from utils import visualization, auth_helper
 
 # Page Config
 st.set_page_config(
@@ -85,11 +85,64 @@ st.title("🎙️ Voice Based Concept Understanding Analyzer")
 st.markdown("Analyze how well someone understands a concept using voice recordings, acoustic measurements, and semantic similarity AI.")
 
 # Initialize state
+if "user" not in st.session_state:
+    st.session_state.user = None
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
 
+# User Authentication Page
+if st.session_state.user is None:
+    st.markdown("<h2 style='text-align: center; color: #F1F5F9;'>🔐 Student & Evaluator Portal</h2>", unsafe_allow_html=True)
+    
+    auth_col1, auth_col2, auth_col3 = st.columns([1, 2, 1])
+    with auth_col2:
+        auth_mode = st.tabs(["🔑 Login", "📝 Register"])
+        
+        with auth_mode[0]:
+            st.markdown("### Sign In to VBCUA Dashboard")
+            login_username = st.text_input("Username", key="login_user")
+            login_password = st.text_input("Password", type="password", key="login_pass")
+            
+            if st.button("Log In", type="primary", use_container_width=True):
+                user = db_helper.get_user_by_username(login_username)
+                if user and auth_helper.verify_password(login_password, user["password_hash"]):
+                    st.session_state.user = user
+                    st.success(f"Welcome back, {login_username}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+                    
+        with auth_mode[1]:
+            st.markdown("### Create New Account")
+            reg_username = st.text_input("Username", key="reg_user")
+            reg_password = st.text_input("Password", type="password", key="reg_pass")
+            reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+            
+            if st.button("Register Account", use_container_width=True):
+                if not reg_username.strip() or not reg_password.strip():
+                    st.error("Fields cannot be empty.")
+                elif reg_password != reg_confirm:
+                    st.error("Passwords do not match.")
+                elif db_helper.get_user_by_username(reg_username):
+                    st.error("Username already exists.")
+                else:
+                    h_pass = auth_helper.hash_password(reg_password)
+                    new_uid = db_helper.create_user(reg_username, h_pass)
+                    if new_uid:
+                        st.success("Account created successfully! Please log in under the Login tab.")
+                    else:
+                        st.error("Failed to create account.")
+    st.stop()
+
 # Sidebar - Settings & History
 with st.sidebar:
+    st.markdown(f"### 👤 Welcome, **{st.session_state.user['username']}**!")
+    if st.button("Logout 🚪", use_container_width=True):
+        st.session_state.user = None
+        st.session_state.analysis_results = None
+        st.rerun()
+    st.markdown("---")
+    
     st.header("⚙️ Settings & Configuration")
     
     whisper_model_choice = st.selectbox(
@@ -130,7 +183,7 @@ with st.sidebar:
     st.header("📜 Session History")
     
     # Session History Listing
-    history = db_helper.get_analyses_history()
+    history = db_helper.get_analyses_history(user_id=st.session_state.user['id'])
     
     if not history:
         st.info("No past analyses found.")
@@ -256,6 +309,17 @@ with right_col:
                         acoustic_results["rms"]
                     )
                     
+                    # 6.5. Generate Google Gemini AI Feedback
+                    gemini_res = gemini_feedback.generate_gemini_feedback(
+                        concept_description,
+                        transcript,
+                        keyword_results["matched"],
+                        keyword_results["missed"],
+                        semantic_results["score"],
+                        fluency_results["fluency_score"],
+                        confidence_results["confidence_score"]
+                    )
+                    
                     # 7. Generate visualizations for PDF
                     chart_png_path = os.path.join(REPORTS_DIR, f"temp_plot_{int(datetime.datetime.now().timestamp())}.png")
                     visualization.save_acoustic_plots_matplotlib(
@@ -293,7 +357,8 @@ with right_col:
                         "filler_percentage": fluency_results["filler_percentage"],
                         "confidence_class": confidence_results["classification"],
                         "confidence_feedback": confidence_results["feedback"],
-                        "fluency_feedback": fluency_results["feedback"]
+                        "fluency_feedback": fluency_results["feedback"],
+                        "gemini_feedback": gemini_res
                     }
                     
                     pdf_generator.generate_pdf_report(report_data, pdf_path, chart_image_path=chart_png_path)
@@ -320,7 +385,9 @@ with right_col:
                         duration=report_data["duration"],
                         concepts_matched=report_data["concepts_matched"],
                         concepts_missed=report_data["concepts_missed"],
-                        pdf_report_path=pdf_path
+                        pdf_report_path=pdf_path,
+                        user_id=st.session_state.user['id'],
+                        gemini_feedback=gemini_res
                     )
                     
                     # Store variables in session state for displaying
@@ -390,8 +457,9 @@ if st.session_state.analysis_results:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Tabs
-    tab_overview, tab_acoustics, tab_fluency, tab_keywords, tab_pdf = st.tabs([
+    tab_overview, tab_ai_feedback, tab_acoustics, tab_fluency, tab_keywords, tab_pdf = st.tabs([
         "👁️ Overview", 
+        "🤖 AI Feedback",
         "📈 Acoustic Waves & Pitch", 
         "🗣️ Fluency & Pauses", 
         "🔑 Keywords & Concepts", 
@@ -414,6 +482,37 @@ if st.session_state.analysis_results:
             st.markdown(f"**Duration:** {res.get('duration', 0.0):.2f} seconds")
             st.markdown(f"**Target Concept Word Length:** {len(res.get('concept_desc', '').split())} words")
             st.markdown(f"**Transcribed Speech Word Length:** {len(res.get('transcript', '').split())} words")
+            
+    with tab_ai_feedback:
+        st.subheader("🤖 Google Gemini AI Feedback & Analysis")
+        g_feed = res.get("gemini_feedback")
+        if not g_feed:
+            st.info("No AI Feedback available for this session.")
+        else:
+            st.markdown(f"### 📋 Overall Evaluation\n{g_feed.get('overall_evaluation', 'N/A')}")
+            
+            col_ai1, col_ai2 = st.columns(2)
+            with col_ai1:
+                st.markdown("### 💪 Strengths")
+                for s in g_feed.get("strengths", []):
+                    st.markdown(f"- **{s}**")
+                    
+                st.markdown("### ❌ Weaknesses / Hesitations")
+                for w in g_feed.get("weaknesses", []):
+                    st.markdown(f"- **{w}**")
+                    
+                st.markdown("### 🔍 Omitted Target Concepts")
+                for m in g_feed.get("missing_concepts", []):
+                    st.markdown(f"- **{m}**")
+                    
+            with col_ai2:
+                st.markdown("### 📚 Recommended Review Topics")
+                for s in g_feed.get("learning_suggestions", []):
+                    st.markdown(f"- **{s}**")
+                    
+                st.markdown("### 💡 Delivery Improvement Tips")
+                for t in g_feed.get("improvement_tips", []):
+                    st.markdown(f"- **{t}**")
             
     with tab_acoustics:
         st.subheader("Interactive Waveform, RMS Energy & Pitch (F0) Tracking")

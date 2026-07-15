@@ -199,6 +199,44 @@ def generate_pdf_report(analysis_data, output_path, chart_image_path=None):
     ]))
     story.append(delivery_table)
     
+    # 5b. Google Gemini AI Analysis Feedback
+    gemini_data = analysis_data.get("gemini_feedback")
+    if gemini_data:
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("Google Gemini AI Feedback & Evaluation", h1_style))
+        
+        strengths_list = gemini_data.get("strengths", [])
+        weaknesses_list = gemini_data.get("weaknesses", [])
+        missing_list = gemini_data.get("missing_concepts", [])
+        suggestions_list = gemini_data.get("learning_suggestions", [])
+        tips_list = gemini_data.get("improvement_tips", [])
+        evaluation_text = gemini_data.get("overall_evaluation", "")
+        
+        def format_list(lst):
+            if not lst:
+                return "None"
+            if isinstance(lst, str):
+                return lst
+            return "<br/>".join(f"• {item}" for item in lst)
+            
+        gemini_table_data = [
+            [Paragraph("<b>Overall Evaluation:</b>", body_bold), Paragraph(evaluation_text or "N/A", body_style)],
+            [Paragraph("<b>Strengths:</b>", body_bold), Paragraph(format_list(strengths_list), body_style)],
+            [Paragraph("<b>Weaknesses:</b>", body_bold), Paragraph(format_list(weaknesses_list), body_style)],
+            [Paragraph("<b>Omitted Concepts:</b>", body_bold), Paragraph(format_list(missing_list), body_style)],
+            [Paragraph("<b>Learning Suggestions:</b>", body_bold), Paragraph(format_list(suggestions_list), body_style)],
+            [Paragraph("<b>Improvement Tips:</b>", body_bold), Paragraph(format_list(tips_list), body_style)]
+        ]
+        gemini_table = Table(gemini_table_data, colWidths=[130, 390])
+        gemini_table.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor("#F1F5F9")),
+        ]))
+        story.append(KeepTogether([gemini_table]))
+        
     # 6. Visualization Chart (if provided)
     if chart_image_path and os.path.exists(chart_image_path):
         story.append(Spacer(1, 20))

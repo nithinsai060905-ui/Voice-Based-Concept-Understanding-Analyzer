@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: vbcua_backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./database:/app/database
+      - ./generated_reports:/app/generated_reports
+      - ./backend/uploads:/app/backend/uploads
+    env_file:
+      - .env
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-vbcua_default_secret_key_8892}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///database/analyzer.db}
+    restart: unless-stopped
+
+  frontend:
+    build: .
+    container_name: vbcua_frontend
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./database:/app/database
+      - ./generated_reports:/app/generated_reports
+    env_file:
+      - .env
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      - backend
+    restart: unless-stopped
